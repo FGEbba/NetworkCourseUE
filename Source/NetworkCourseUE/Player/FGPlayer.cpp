@@ -8,6 +8,8 @@
 #include "GameFramework/PlayerState.h"
 #include "../Components//FGMovementComponent.h"
 #include "../FGMovementStatics.h"
+#include "../FGPlayerSettings.h"
+#include "../FGNetDebugWidget.h"
 
 AFGPlayer::AFGPlayer()
 {
@@ -36,6 +38,12 @@ void AFGPlayer::BeginPlay()
 	Super::BeginPlay();
 
 	MovementComponent->SetUpdatedComponent(CollisionComponent);
+
+	CreateDebugWidget();
+	if (DebugMenuInstance != nullptr)
+	{
+		DebugMenuInstance->SetVisibility(ESlateVisibility::Collapsed);
+	}
 }
 
 void AFGPlayer::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -47,17 +55,24 @@ void AFGPlayer::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 
 	PlayerInputComponent->BindAction(TEXT("Brake"), IE_Pressed, this, &AFGPlayer::Handle_BrakePressed);
 	PlayerInputComponent->BindAction(TEXT("Brake"), IE_Released, this, &AFGPlayer::Handle_BrakeReleased);
+
+	PlayerInputComponent->BindAction(TEXT("DebugMenu"), IE_Pressed, this, &AFGPlayer::Handle_DebugMenuPressed);
 }
 
 void AFGPlayer::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	if (!ensure(PlayerSettings != nullptr))
+		return;
+
 	if (IsLocallyControlled())
 	{
-		const float Friction = IsBraking() ? BrakingFriction : DefaultFriction;
+		const float MaxVelocity = PlayerSettings->MaxVelocity;
+		const float Acceleration = PlayerSettings->Acceleration;
+		const float Friction = IsBraking() ? PlayerSettings->BrakingFriction : PlayerSettings->DefaultFriction;
 		const float Alpha = FMath::Clamp(FMath::Abs(MovementVelocity / (MaxVelocity * 0.75f)), 0.0f, 1.0f);
-		const float TurnSpeed = FMath::InterpEaseOut(0.0f, TurnSpeedDefault, Alpha, 5.0f);
+		const float TurnSpeed = FMath::InterpEaseOut(0.0f, PlayerSettings->TurnSpeedDefault, Alpha, 5.0f);
 		const float MovementDirection = MovementVelocity > 0.0f ? Turn : -Turn;
 
 		Yaw += (MovementDirection * TurnSpeed) * DeltaTime;
@@ -130,6 +145,24 @@ void AFGPlayer::Multicast_SendRotation_Implementation(const FRotator& RotationTo
 	}
 }
 
+void AFGPlayer::ShowDebugMenu()
+{
+	CreateDebugWidget();
+
+	DebugMenuInstance->SetVisibility(ESlateVisibility::Visible);
+	DebugMenuInstance->BP_OnShowWidget();
+}
+
+void AFGPlayer::HideDebugMenu()
+{
+	if (DebugMenuInstance == nullptr)
+		return;
+
+
+	DebugMenuInstance->SetVisibility(ESlateVisibility::Collapsed);
+	DebugMenuInstance->BP_OnHideWidget();
+}
+
 void AFGPlayer::Handle_Accelerate(float Value)
 {
 	Forward = Value;
@@ -148,4 +181,28 @@ void AFGPlayer::Handle_BrakePressed()
 void AFGPlayer::Handle_BrakeReleased()
 {
 	bBrake = false;
+}
+
+void AFGPlayer::Handle_DebugMenuPressed()
+{
+	bShowDebugMenu = !bShowDebugMenu;
+	if (bShowDebugMenu)
+		ShowDebugMenu();
+	else
+		HideDebugMenu();
+}
+
+void AFGPlayer::CreateDebugWidget()
+{
+	if (DebugMenuClass == nullptr)
+		return;
+
+	if (!IsLocallyControlled())
+		return;
+
+	if (DebugMenuInstance == nullptr)
+	{
+		DebugMenuInstance = CreateWidget<UFGNetDebugWidget>(GetWorld(), DebugMenuClass);
+		DebugMenuInstance->AddToViewport();
+	}
 }
