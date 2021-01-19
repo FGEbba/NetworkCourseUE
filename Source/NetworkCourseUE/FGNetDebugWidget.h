@@ -47,7 +47,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = Widget)
 		void UpdateNetworkSimulationSettings(const FFGBlueprintNetworkSimulationSettings& InPackets);
 
-	UFUNCTION(BlueprintCallable, Category = Widget, meta = (DisplayName = "On Update Network Simulation Settings"))
+	UFUNCTION(BlueprintImplementableEvent, Category = Widget, meta = (DisplayName = "On Update Network Simulation Settings"))
 		void BP_OnUpdateNetworkSimulationSettings(const FFGBlueprintNetworkSimulationSettingsText& Packets);
 
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;

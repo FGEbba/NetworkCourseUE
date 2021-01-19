@@ -46,18 +46,23 @@ public:
 
 
 	UFUNCTION(Server, Unreliable)
-		void Server_SendLocation(const FVector& LocationToSend, float DeltaTime);
+		void Server_SendLocation(const FVector& LocationToSend);
 
 
 	UFUNCTION(NetMulticast, Unreliable)
-		void Multicast_SendLocation(const FVector& LocationToSend, float DeltaTime);
+		void Multicast_SendLocation(const FVector& LocationToSend);
 
+	UFUNCTION(Server, Unreliable)
+		void Server_SendYaw(float NewYaw);
+
+
+	/*The old send rotation scripts.
 	UFUNCTION(Server, Unreliable)
 		void Server_SendRotation(const FRotator& RotationToSend, float DeltaTime);
 
 	UFUNCTION(NetMulticast, Unreliable)
 		void Multicast_SendRotation(const FRotator& RotationToSend, float DeltaTime);
-
+	*/
 
 
 
@@ -77,11 +82,18 @@ private:
 	UPROPERTY(Transient)
 		UFGNetDebugWidget* DebugMenuInstance = nullptr;
 
+	UPROPERTY(Replicated)
+		float ReplicatedYaw = 0.0f;
+
+	UPROPERTY(Replicated)
+		FVector ReplicatedLocation;
+
+	/*Used for the old send rotation script.
 	FVector prevPingedLocation = FVector::ZeroVector;
 	FRotator prevPingedRotation = FRotator::ZeroRotator;
 
 	float PrevPingTime = 0.0f;
-	const float TransitionTime = 2.5f;
+	const float TransitionTime = 2.5f;*/
 
 	float Forward = 0.0f;
 	float Turn = 0.0f;

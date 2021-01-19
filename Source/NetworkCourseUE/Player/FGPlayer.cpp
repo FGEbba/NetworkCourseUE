@@ -6,6 +6,7 @@
 #include "Engine/NetDriver.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/PlayerState.h"
+#include "Net/UnrealNetwork.h"
 #include "../Components//FGMovementComponent.h"
 #include "../FGMovementStatics.h"
 #include "../FGPlayerSettings.h"
@@ -89,19 +90,29 @@ void AFGPlayer::Tick(float DeltaTime)
 		FrameMovement.AddDelta(GetActorForwardVector() * MovementVelocity * DeltaTime);
 		MovementComponent->Move(FrameMovement);
 
-		Server_SendRotation(GetActorRotation(), DeltaTime);
-		Server_SendLocation(GetActorLocation(), DeltaTime);
+		//Server_SendRotation(GetActorRotation(), DeltaTime);
+		Server_SendLocation(GetActorLocation());
+
+		Server_SendYaw(MovementComponent->GetFacingRotation().Yaw);
+
 
 	}
 	else
-	{
+	{	
+		const FVector NewLocation = FMath::VInterpTo(GetActorLocation(), ReplicatedLocation, DeltaTime, 10.0f);
+		SetActorLocation(NewLocation);
+
+		MovementComponent->SetFacingRotation(FRotator(0.0f, ReplicatedYaw, 0.0f), 7.0f);
+		SetActorRotation(FRotator(0.0f, ReplicatedYaw, 0.0f));
+		/*The old code. In case it's needed.
+
 		if (GetActorLocation() != prevPingedLocation)
 		{
 			SetActorLocation(FMath::VInterpTo(GetActorLocation(), prevPingedLocation, PrevPingTime, TransitionTime));
 		}if (GetActorRotation() != prevPingedRotation)
 		{
 			SetActorRotation(FMath::RInterpTo(GetActorRotation(), prevPingedRotation, PrevPingTime, TransitionTime));
-		}
+		}*/
 	}
 }
 
@@ -117,33 +128,38 @@ int32 AFGPlayer::GetPing() const
 	return 0;
 }
 
-void AFGPlayer::Server_SendLocation_Implementation(const FVector& LocationToSend, float DeltaTime)
+
+void AFGPlayer::Server_SendLocation_Implementation(const FVector& LocationToSend)
 {
-	Multicast_SendLocation(LocationToSend, DeltaTime);
+	Multicast_SendLocation(LocationToSend);
 }
 
-void AFGPlayer::Multicast_SendLocation_Implementation(const FVector& LocationToSend, float DeltaTime)
+void AFGPlayer::Multicast_SendLocation_Implementation(const FVector& LocationToSend)
 {
-	if (!IsLocallyControlled())
-	{
-		prevPingedLocation = LocationToSend;
-		PrevPingTime = DeltaTime;
-	}
+	ReplicatedLocation = LocationToSend;
 }
 
-void AFGPlayer::Server_SendRotation_Implementation(const FRotator& RotationToSend, float DeltaTime)
+
+void AFGPlayer::Server_SendYaw_Implementation(float NewYaw)
 {
-	Multicast_SendRotation(RotationToSend, DeltaTime);
+	//Decided to go with the rotation from Lecture 2 instead of what I had before.
+	ReplicatedYaw = NewYaw;
 }
 
-void AFGPlayer::Multicast_SendRotation_Implementation(const FRotator& RotationToSend, float DeltaTime)
-{
-	if (!IsLocallyControlled())
-	{
-		prevPingedRotation = RotationToSend;
-		PrevPingTime = DeltaTime;
-	}
-}
+//
+//void AFGPlayer::Server_SendRotation_Implementation(const FRotator& RotationToSend, float DeltaTime)
+//{
+//	Multicast_SendRotation(RotationToSend, DeltaTime);
+//}
+//
+//void AFGPlayer::Multicast_SendRotation_Implementation(const FRotator& RotationToSend, float DeltaTime)
+//{
+//	if (!IsLocallyControlled())
+//	{
+//		prevPingedRotation = RotationToSend;
+//		PrevPingTime = DeltaTime;
+//	}
+//}
 
 void AFGPlayer::ShowDebugMenu()
 {
@@ -205,4 +221,11 @@ void AFGPlayer::CreateDebugWidget()
 		DebugMenuInstance = CreateWidget<UFGNetDebugWidget>(GetWorld(), DebugMenuClass);
 		DebugMenuInstance->AddToViewport();
 	}
+}
+
+void AFGPlayer::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(AFGPlayer, ReplicatedYaw);
+	DOREPLIFETIME(AFGPlayer, ReplicatedLocation);
 }
