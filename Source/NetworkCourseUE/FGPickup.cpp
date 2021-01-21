@@ -18,6 +18,8 @@ AFGPickup::AFGPickup()
 
 	MeshComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
 	MeshComponent->SetupAttachment(RootComponent);
+	MeshComponent->SetGenerateOverlapEvents(false);
+	MeshComponent->SetCollisionProfileName(TEXT("NoCollision"));
 
 	SetReplicates(true);
 }
@@ -64,14 +66,16 @@ void AFGPickup::ReActivatePickup()
 
 void AFGPickup::OverlapBegin(UPrimitiveComponent* OverlappedComponet, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
-	if(bPickedUp)
+	if (bPickedUp)
 		return;
 
 	if (AFGPlayer* Player = Cast<AFGPlayer>(OtherActor))
 	{
-		//Player->OnPickup(this);
+		Player->OnPickup(this);
 		bPickedUp = true;
 		SphereComponent->SetCollisionProfileName(TEXT("NoCollision"));
+		SetActorHiddenInGame(true);
+
 		RootComponent->SetVisibility(false, true);
 
 		GetWorldTimerManager().SetTimer(ReActivateHandle, this, &AFGPickup::ReActivatePickup, ReActivateTime, false);

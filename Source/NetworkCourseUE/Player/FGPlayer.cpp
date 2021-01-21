@@ -1,4 +1,5 @@
 #include "FGPlayer.h"
+
 #include "Camera/CameraComponent.h"
 #include "Components/InputComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -7,6 +8,9 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/PlayerState.h"
 #include "Net/UnrealNetwork.h"
+
+#include "../FGPickup.h"
+#include "../FGRocket.h"
 #include "../Components//FGMovementComponent.h"
 #include "../FGMovementStatics.h"
 #include "../FGPlayerSettings.h"
@@ -45,6 +49,8 @@ void AFGPlayer::BeginPlay()
 	{
 		DebugMenuInstance->SetVisibility(ESlateVisibility::Collapsed);
 	}
+
+	SpawnRockets();
 }
 
 void AFGPlayer::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -58,11 +64,16 @@ void AFGPlayer::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 	PlayerInputComponent->BindAction(TEXT("Brake"), IE_Released, this, &AFGPlayer::Handle_BrakeReleased);
 
 	PlayerInputComponent->BindAction(TEXT("DebugMenu"), IE_Pressed, this, &AFGPlayer::Handle_DebugMenuPressed);
+
+	PlayerInputComponent->BindAction(TEXT("Fire"), IE_Pressed, this, &AFGPlayer::Handle_FirePressed);
 }
 
 void AFGPlayer::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+
+	FireCooldownElapsed -= DeltaTime;
+
 
 	if (!ensure(PlayerSettings != nullptr))
 		return;
@@ -98,11 +109,11 @@ void AFGPlayer::Tick(float DeltaTime)
 
 	}
 	else
-	{	
+	{
 		const FVector NewLocation = FMath::VInterpTo(GetActorLocation(), ReplicatedLocation, DeltaTime, 10.0f);
 		SetActorLocation(NewLocation);
 
-		MovementComponent->SetFacingRotation(FRotator(0.0f, ReplicatedYaw, 0.0f), 7.0f);
+		MovementComponent->SetFacingRotation(FRotator(0.0f, ReplicatedYaw, 0.0f));
 		SetActorRotation(FRotator(0.0f, ReplicatedYaw, 0.0f));
 		/*The old code. In case it's needed.
 
@@ -116,8 +127,6 @@ void AFGPlayer::Tick(float DeltaTime)
 	}
 }
 
-
-
 int32 AFGPlayer::GetPing() const
 {
 	if (GetPlayerState())
@@ -128,6 +137,23 @@ int32 AFGPlayer::GetPing() const
 	return 0;
 }
 
+void AFGPlayer::OnPickup(AFGPickup* Pickup)
+{
+	if (IsLocallyControlled())
+		Server_OnPickup(Pickup);
+}
+
+void AFGPlayer::Server_OnPickup_Implementation(AFGPickup* Pickup)
+{
+	ServerNumRockets += Pickup->NumRockets;
+	Client_OnPickupRockets(Pickup->NumRockets);
+}
+
+void AFGPlayer::Client_OnPickupRockets_Implementation(int32 PickedUpRockets)
+{
+	NumRockets += PickedUpRockets;
+	BP_OnNumRocketsChanged(NumRockets);
+}
 
 void AFGPlayer::Server_SendLocation_Implementation(const FVector& LocationToSend)
 {
@@ -138,7 +164,6 @@ void AFGPlayer::Multicast_SendLocation_Implementation(const FVector& LocationToS
 {
 	ReplicatedLocation = LocationToSend;
 }
-
 
 void AFGPlayer::Server_SendYaw_Implementation(float NewYaw)
 {
@@ -161,23 +186,6 @@ void AFGPlayer::Server_SendYaw_Implementation(float NewYaw)
 //	}
 //}
 
-void AFGPlayer::ShowDebugMenu()
-{
-	CreateDebugWidget();
-
-	DebugMenuInstance->SetVisibility(ESlateVisibility::Visible);
-	DebugMenuInstance->BP_OnShowWidget();
-}
-
-void AFGPlayer::HideDebugMenu()
-{
-	if (DebugMenuInstance == nullptr)
-		return;
-
-
-	DebugMenuInstance->SetVisibility(ESlateVisibility::Collapsed);
-	DebugMenuInstance->BP_OnHideWidget();
-}
 
 void AFGPlayer::Handle_Accelerate(float Value)
 {
@@ -199,6 +207,11 @@ void AFGPlayer::Handle_BrakeReleased()
 	bBrake = false;
 }
 
+void AFGPlayer::Handle_FirePressed()
+{
+	FireRocket();
+}
+
 void AFGPlayer::Handle_DebugMenuPressed()
 {
 	bShowDebugMenu = !bShowDebugMenu;
@@ -207,6 +220,157 @@ void AFGPlayer::Handle_DebugMenuPressed()
 	else
 		HideDebugMenu();
 }
+
+
+int32 AFGPlayer::GetNumActiveRockets() const
+{
+	int32 NumActive = 0;
+	for (AFGRocket* Rocket : RocketInstances)
+	{
+		if (!Rocket->IsFree())
+			NumActive++;
+	}
+
+	return NumActive;
+}
+
+void AFGPlayer::FireRocket()
+{
+	if (FireCooldownElapsed > 0.0f)
+		return;
+
+	if (NumRockets <= 0 && !bUnlimitedRockets)
+		return;
+
+	if (GetNumActiveRockets() >= MaxActiveRockets)
+		return;
+
+	AFGRocket* NewRocket = GetFreeRocket();
+
+	if (!ensure(NewRocket != nullptr))
+		return;
+		//
+	FireCooldownElapsed = PlayerSettings->FireCooldown;
+
+	if (GetLocalRole() >= ROLE_AutonomousProxy)
+	{
+		if (HasAuthority())
+		{
+			Server_FireRocket(NewRocket, GetRocketStartLocation(), GetActorRotation());
+		}
+		else
+		{
+			NumRockets--;
+			NewRocket->StartMoving(GetActorForwardVector(), GetRocketStartLocation());
+			Server_FireRocket(NewRocket, GetRocketStartLocation(), GetActorRotation());
+		}
+	}
+}
+
+void AFGPlayer::SpawnRockets()
+{
+	if (HasAuthority() && RocketClass != nullptr)
+	{
+		const int32 RocketCache = 8;
+
+		for (int32 Index = 0; Index < RocketCache; ++Index)
+		{
+			FActorSpawnParameters SpawnParams;
+			SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+			SpawnParams.ObjectFlags = RF_Transient;
+			SpawnParams.Instigator = this;
+			SpawnParams.Owner = this;
+			AFGRocket* NewRocketInstance = GetWorld()->SpawnActor<AFGRocket>(RocketClass, GetActorLocation(), GetActorRotation(), SpawnParams);
+			RocketInstances.Add(NewRocketInstance);
+		}
+	}
+
+}
+
+FVector AFGPlayer::GetRocketStartLocation() const
+{
+	const FVector StartLoc = GetActorLocation() + GetActorForwardVector() * 100.0f;
+	return StartLoc;
+}
+
+AFGRocket* AFGPlayer::GetFreeRocket() const
+{
+	for (AFGRocket* Rocket : RocketInstances)
+	{
+		if (Rocket == nullptr)
+			continue;
+
+
+		if (Rocket->IsFree())
+			return Rocket;
+	}
+
+	return nullptr;
+}
+
+void AFGPlayer::Server_FireRocket_Implementation(AFGRocket* NewRocket, const FVector& RocketStartLocation, const FRotator& RocketFacingRotation)
+{
+	if ((ServerNumRockets - 1) < 0 && !bUnlimitedRockets)
+	{
+		Client_RemoveRocket(NewRocket);
+	}
+	else
+	{
+		const float DeltaYaw = FMath::FindDeltaAngleDegrees(RocketFacingRotation.Yaw, GetActorForwardVector().Rotation().Yaw) * 0.5f;
+		const FRotator NewFacingRotation = RocketFacingRotation + FRotator(0.0f, DeltaYaw, 0.0f);
+		ServerNumRockets--;
+		Multicast_FireRocket(NewRocket, RocketStartLocation, NewFacingRotation);
+	}
+
+}
+
+void AFGPlayer::Multicast_FireRocket_Implementation(AFGRocket* NewRocket, const FVector& RocketStartLocation, const FRotator& RocketFacingRotation)
+{
+	if (!ensure(NewRocket != nullptr))
+		return;
+
+	if (GetLocalRole() == ROLE_AutonomousProxy)
+	{
+		NewRocket->ApplyCorrection(RocketFacingRotation.Vector());
+	}
+	else
+	{
+		NumRockets--;
+		NewRocket->StartMoving(RocketFacingRotation.Vector(), RocketStartLocation);
+	}
+}
+
+void AFGPlayer::Client_RemoveRocket_Implementation(AFGRocket* RocketToRemove)
+{
+	RocketToRemove->MakeFree();
+}
+
+void AFGPlayer::Cheat_IncreaseRocket(int32 InNumRockets)
+{
+	if (IsLocallyControlled())
+		NumRockets += InNumRockets;
+}
+
+#pragma region Debug Widget
+
+void AFGPlayer::ShowDebugMenu()
+{
+	CreateDebugWidget();
+
+	DebugMenuInstance->SetVisibility(ESlateVisibility::Visible);
+	DebugMenuInstance->BP_OnShowWidget();
+}
+
+void AFGPlayer::HideDebugMenu()
+{
+	if (DebugMenuInstance == nullptr)
+		return;
+
+
+	DebugMenuInstance->SetVisibility(ESlateVisibility::Collapsed);
+	DebugMenuInstance->BP_OnHideWidget();
+}
+
 
 void AFGPlayer::CreateDebugWidget()
 {
@@ -223,9 +387,14 @@ void AFGPlayer::CreateDebugWidget()
 	}
 }
 
+#pragma endregion
+
 void AFGPlayer::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(AFGPlayer, ReplicatedYaw);
 	DOREPLIFETIME(AFGPlayer, ReplicatedLocation);
+	DOREPLIFETIME(AFGPlayer, RocketInstances);
 }
+
+
