@@ -11,6 +11,7 @@
 
 #include "../FGPickup.h"
 #include "../FGRocket.h"
+#include "../Components/FGHealthComponent.h"
 #include "../Components//FGMovementComponent.h"
 #include "../FGMovementStatics.h"
 #include "../FGPlayerSettings.h"
@@ -43,6 +44,7 @@ void AFGPlayer::BeginPlay()
 	Super::BeginPlay();
 
 	MovementComponent->SetUpdatedComponent(CollisionComponent);
+	CurrentHealth = MaxHealth;
 
 	CreateDebugWidget();
 	if (DebugMenuInstance != nullptr)
@@ -51,6 +53,8 @@ void AFGPlayer::BeginPlay()
 	}
 
 	SpawnRockets();
+	BP_OnNumRocketsChanged(NumRockets);
+	BP_HealthChanged(CurrentHealth);
 }
 
 void AFGPlayer::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -115,15 +119,15 @@ void AFGPlayer::Tick(float DeltaTime)
 
 		MovementComponent->SetFacingRotation(FRotator(0.0f, ReplicatedYaw, 0.0f));
 		SetActorRotation(FRotator(0.0f, ReplicatedYaw, 0.0f));
-		/*The old code. In case it's needed.
+		//The old code. In case it's needed.
 
-		if (GetActorLocation() != prevPingedLocation)
-		{
-			SetActorLocation(FMath::VInterpTo(GetActorLocation(), prevPingedLocation, PrevPingTime, TransitionTime));
-		}if (GetActorRotation() != prevPingedRotation)
-		{
-			SetActorRotation(FMath::RInterpTo(GetActorRotation(), prevPingedRotation, PrevPingTime, TransitionTime));
-		}*/
+		//if (GetActorLocation() != prevPingedLocation)
+		//{
+		//	SetActorLocation(FMath::VInterpTo(GetActorLocation(), prevPingedLocation, PrevPingTime, TransitionTime));
+		//}if (GetActorRotation() != prevPingedRotation)
+		//{
+		//	SetActorRotation(FMath::RInterpTo(GetActorRotation(), prevPingedRotation, PrevPingTime, TransitionTime));
+		//}
 	}
 }
 
@@ -143,6 +147,17 @@ void AFGPlayer::OnPickup(AFGPickup* Pickup)
 		Server_OnPickup(Pickup);
 }
 
+void AFGPlayer::Server_OnNumRocketsChanged_Implementation(int32 NewRocketAmount)
+{
+	Multicast_OnNumRocketsChanged(NewRocketAmount);
+}
+
+
+void AFGPlayer::Multicast_OnNumRocketsChanged_Implementation(int32 NewRocketAmount)
+{
+	BP_OnNumRocketsChanged(NewRocketAmount);
+}
+
 void AFGPlayer::Server_OnPickup_Implementation(AFGPickup* Pickup)
 {
 	ServerNumRockets += Pickup->NumRockets;
@@ -153,6 +168,7 @@ void AFGPlayer::Client_OnPickupRockets_Implementation(int32 PickedUpRockets)
 {
 	NumRockets += PickedUpRockets;
 	BP_OnNumRocketsChanged(NumRockets);
+	Server_OnNumRocketsChanged(NumRockets);
 }
 
 void AFGPlayer::Server_SendLocation_Implementation(const FVector& LocationToSend)
@@ -221,7 +237,6 @@ void AFGPlayer::Handle_DebugMenuPressed()
 		HideDebugMenu();
 }
 
-
 int32 AFGPlayer::GetNumActiveRockets() const
 {
 	int32 NumActive = 0;
@@ -249,7 +264,7 @@ void AFGPlayer::FireRocket()
 
 	if (!ensure(NewRocket != nullptr))
 		return;
-		//
+	//
 	FireCooldownElapsed = PlayerSettings->FireCooldown;
 
 	if (GetLocalRole() >= ROLE_AutonomousProxy)
@@ -285,6 +300,38 @@ void AFGPlayer::SpawnRockets()
 		}
 	}
 
+}
+
+void AFGPlayer::Server_SendHealth_Implementation(int NewHealth)
+{
+	Multicast_SendHealth(NewHealth);
+}
+
+void AFGPlayer::Multicast_SendHealth_Implementation(int NewHealth)
+{
+	BP_HealthChanged(NewHealth);
+}
+
+void AFGPlayer::Client_TakeDamage_Implementation(int NewHealth)
+{
+	Server_SendHealth(CurrentHealth);
+}
+
+void AFGPlayer::TakeDamage(int InDamageToTake)
+{
+	if (IsLocallyControlled())
+	{
+		CurrentHealth -= InDamageToTake;
+
+		Client_TakeDamage(CurrentHealth);
+	}
+}
+
+void AFGPlayer::Cheat_ChangeHealth(int Amount)
+{
+	CurrentHealth += Amount;
+	if (IsLocallyControlled())
+		Server_SendHealth(CurrentHealth);
 }
 
 FVector AFGPlayer::GetRocketStartLocation() const
@@ -337,6 +384,7 @@ void AFGPlayer::Multicast_FireRocket_Implementation(AFGRocket* NewRocket, const 
 	{
 		NumRockets--;
 		NewRocket->StartMoving(RocketFacingRotation.Vector(), RocketStartLocation);
+		Multicast_OnNumRocketsChanged(ServerNumRockets);
 	}
 }
 
@@ -395,6 +443,8 @@ void AFGPlayer::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetim
 	DOREPLIFETIME(AFGPlayer, ReplicatedYaw);
 	DOREPLIFETIME(AFGPlayer, ReplicatedLocation);
 	DOREPLIFETIME(AFGPlayer, RocketInstances);
+	DOREPLIFETIME(AFGPlayer, CurrentHealth);
+	DOREPLIFETIME(AFGPlayer, NumRockets);
 }
 
 

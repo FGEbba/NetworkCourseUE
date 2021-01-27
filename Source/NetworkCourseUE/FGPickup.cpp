@@ -59,7 +59,8 @@ void AFGPickup::Tick(float DeltaTime)
 void AFGPickup::ReActivatePickup()
 {
 	bPickedUp = false;
-	RootComponent->SetVisibility(true, true);
+	RootComponent->SetVisibility(true, true); 
+	SetActorHiddenInGame(false);
 	SphereComponent->SetCollisionProfileName(TEXT("OverlapAllDynamic"));
 
 }

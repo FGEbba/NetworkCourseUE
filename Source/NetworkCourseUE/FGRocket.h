@@ -5,6 +5,7 @@
 #include "FGRocket.generated.h"
 
 class UStaticMeshComponent;
+class USphereComponent;
 
 UCLASS()
 class NETWORKCOURSEUE_API AFGRocket : public AActor
@@ -25,6 +26,8 @@ public:
 
 	bool IsFree() const { return bIsFree; }
 
+	UPROPERTY(EditAnywhere, Category = "Damage", meta = (ClampMin = 1))
+		int Damage = 10;
 private:
 
 	void SetRocketVisibility(bool bVisible);
@@ -35,6 +38,9 @@ private:
 
 	UPROPERTY(EditAnywhere, Category = "VFX")
 		UStaticMeshComponent* MeshComponent = nullptr;
+
+	UPROPERTY(VisibleDefaultsOnly, Category = "Collision")
+		USphereComponent* SphereComponent;
 
 	UPROPERTY(EditAnywhere, Category = "Debug")
 		bool bDebugDrawCorrection = true;

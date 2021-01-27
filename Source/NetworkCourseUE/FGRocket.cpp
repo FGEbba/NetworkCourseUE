@@ -1,6 +1,9 @@
 #include "FGRocket.h"
 
+#include "Player/FGPlayer.h"
+
 #include "Components/StaticMeshComponent.h"
+#include "Components/SphereComponent.h"
 #include "Engine/World.h"
 #include "Kismet//GameplayStatics.h"
 #include "DrawDebugHelpers.h"
@@ -17,6 +20,9 @@ AFGRocket::AFGRocket()
 	MeshComponent->SetupAttachment(RootComponent);
 	MeshComponent->SetGenerateOverlapEvents(false);
 	MeshComponent->SetCollisionProfileName(TEXT("NoCollision"));
+
+	SphereComponent = CreateDefaultSubobject<USphereComponent>(TEXT("Sphere"));
+	SphereComponent->SetupAttachment(RootComponent);
 
 	SetReplicates(true);
 }
@@ -65,6 +71,13 @@ void AFGRocket::Tick(float DeltaTime)
 	const FVector EndLoc = StartLoc + FacingRotationStart * 100.0f;
 	GetWorld()->LineTraceSingleByChannel(Hit, StartLoc, EndLoc, ECC_Visibility, CachedCollisionQuaryParams);
 
+	if (AFGPlayer* Player = Cast<AFGPlayer>(Hit.Actor))
+	{
+		Player->TakeDamage(Damage);
+		Explode();
+		return;
+	}
+
 	if (Hit.bBlockingHit)
 		Explode();
 
@@ -112,4 +125,5 @@ void AFGRocket::SetRocketVisibility(bool bVisible)
 {
 	RootComponent->SetVisibility(bVisible, true);
 }
+
 

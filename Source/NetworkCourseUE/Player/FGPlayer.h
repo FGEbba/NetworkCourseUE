@@ -50,6 +50,12 @@ public:
 	UFUNCTION(Client, Reliable)
 		void Client_OnPickupRockets(int32 PickedUpRockets);
 
+	UFUNCTION(Server, Reliable)
+		void Server_OnNumRocketsChanged(int32 NewRocketAmount);
+
+	UFUNCTION(NetMulticast, Reliable)
+		void Multicast_OnNumRocketsChanged(int32 NewRocketAmount);
+
 	UFUNCTION(Server, Unreliable)
 		void Server_SendLocation(const FVector& LocationToSend);
 
@@ -60,13 +66,13 @@ public:
 		void Server_SendYaw(float NewYaw);
 
 
-	/*The old send rotation scripts.
-	UFUNCTION(Server, Unreliable)
-		void Server_SendRotation(const FRotator& RotationToSend, float DeltaTime);
+	//The old send rotation scripts.
+	//UFUNCTION(Server, Unreliable)
+	//	void Server_SendRotation(const FRotator& RotationToSend, float DeltaTime);
 
-	UFUNCTION(NetMulticast, Unreliable)
-		void Multicast_SendRotation(const FRotator& RotationToSend, float DeltaTime);
-	*/
+	//UFUNCTION(NetMulticast, Unreliable)
+	//	void Multicast_SendRotation(const FRotator& RotationToSend, float DeltaTime);
+	//
 
 	void ShowDebugMenu();
 	void HideDebugMenu();
@@ -77,17 +83,47 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Player", meta = (DisplayName = "On Num Rockets Changed"))
 		void BP_OnNumRocketsChanged(int32 NewNumRockets);
 
+	UFUNCTION(BlueprintImplementableEvent, Category = "Player", meta = (DisplayName = "On Health Changed"))
+		void BP_HealthChanged(int NewHealth);
+
 	int32 GetNumActiveRockets() const;
 
 	void FireRocket();
 
 	void SpawnRockets();
 
+	UFUNCTION(BlueprintPure)
+		int GetMaxHealth() const { return MaxHealth; }
+
+	UFUNCTION(BlueprintPure)
+		int GetCurrentHealth() const { return CurrentHealth; }
+
+	UFUNCTION(Server, Reliable)
+		void Server_SendHealth(int NewHealth);
+
+	UFUNCTION(NetMulticast, Reliable)
+		void Multicast_SendHealth(int NewHealth);
+
+	UFUNCTION(Client, Reliable)
+		void Client_TakeDamage(int NewHealth);
+
+	UFUNCTION()
+		void TakeDamage(int InDamageToTake);
+
+	UFUNCTION(BLueprintCallable)
+		void Cheat_ChangeHealth(int Amount);
 
 private:
+
+	UPROPERTY(EditAnywhere, Category = Health, meta = (ClampMin = 1.0))
+		int MaxHealth = 100;
+
+	bool bIsDead = false;
+
 	int32 ServerNumRockets = 0;
 
-	int32 NumRockets = 0;
+	UPROPERTY(Replicated, Transient)
+		int32 NumRockets = 0;
 
 	FVector GetRocketStartLocation() const;
 
@@ -116,7 +152,7 @@ private:
 	float FireCooldownElapsed = 3;
 
 	UPROPERTY(EditAnywhere, Category = "Weapon")
-	bool bUnlimitedRockets = false;
+		bool bUnlimitedRockets = false;
 
 	void Handle_Accelerate(float Value);
 	void Handle_Turn(float Value);
@@ -137,6 +173,8 @@ private:
 	UPROPERTY(Replicated)
 		FVector ReplicatedLocation;
 
+	UPROPERTY(Replicated)
+		int CurrentHealth;
 	/*Used for the old send rotation script.
 	FVector prevPingedLocation = FVector::ZeroVector;
 	FRotator prevPingedRotation = FRotator::ZeroRotator;
@@ -167,5 +205,4 @@ private:
 
 	UPROPERTY(VisibleDefaultsOnly, Category = Movement)
 		UFGMovementComponent* MovementComponent;
-
 };
